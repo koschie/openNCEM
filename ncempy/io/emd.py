@@ -48,7 +48,7 @@ class fileEMD:
             >>> del emd1 #close the emd file
     """
 
-    def __init__(self, filename, readonly=False):
+    def __init__(self, filename, readonly=False, version=(0, 2)):
         """Init opening/creating the file.
 
         """
@@ -57,25 +57,22 @@ class fileEMD:
         self.file_hdl = None
 
         # convenience handles to access the data in the emd file, everything can as well be accessed using the file_hdl
-        self.version = None
+        self.version = version
         self.data = None
         self.microscope = None
         self.sample = None
         self.user = None
         self.comments = None
         self.list_emds = []  # list of HDF5 groups with emd_data_type type
-
-        # check for string
-        #if not isinstance(filename, str):
-        #    raise TypeError('Filename is supposed to be a string!')
+        self.put_emdgroup = self.put_emdgroup_v02  # This will be set to v0.7 if needed
 
         # check filename type
         if isinstance(filename, str):
-            pass
+            filename = Path(filename)
         elif isinstance(filename, Path):
-            filename = str(filename)
+            pass
         else:
-            raise TypeError('Filename is supposed to be a string or pathlib.Path')
+            raise TypeError('Filename must be a string or pathlib.Path')
 
         # try opening the file
         if readonly:
@@ -86,7 +83,14 @@ class fileEMD:
                 raise
         else:
             try:
-                self.file_hdl = h5py.File(filename, 'a')
+                if filename.exists():
+                    self.file_hdl = h5py.File(filename, 'a')
+                else:
+                    self.file_hdl = h5py.File(filename, 'a')
+                    for group_name in ['/data', '/microscope', '/sample', '/user', '/comments']:
+                        self.file_hdl.create_group(group_name)
+                    self.file_hdl.attrs['version_major'] = version[0]
+                    self.file_hdl.attrs['version_minor'] = version[1]
             except:
                 print('Error opening file for read/write: "{}"'.format(filename))
                 raise
@@ -98,49 +102,35 @@ class fileEMD:
                 # read version information
                 self.version = (self.file_hdl.attrs['version_major'], self.file_hdl.attrs['version_minor'])
                 # compare to implementation
-                if not self.version == (0, 2):
-                    print(
-                        'WARNING: You are reading a version {}.{} EMD file, this implementation assumes version 0.2!'.format(
-                            self.version[0], self.version[1]))
+                if self.version == (0, 2):
+                    self.put_emdgroup = self.put_emdgroup_v02
+                elif self.version == (0, 7):
+                    self.put_emdgroup = self.put_emdgroup_v07
+                else:
+                    print('WARNING: File is an unsupported v{}.{}.'
+                          ' Assuming v0.2!'.format(self.version[0], self.version[1]))
             else:
-                # set version information
-                if not readonly:
-                    self.file_hdl.attrs['version_major'] = 0
-                    self.file_hdl.attrs['version_minor'] = 2
+                print('WARNING: File is an unknown EMD version.'
+                      ' Assuming v0.2'.format(self.version[0], self.version[1]))
 
             # check for data group
-            if 'data' not in self.file_hdl:
-                if not readonly:
-                    self.data = self.file_hdl.create_group('data')
-            else:
+            if 'data' in self.file_hdl:
                 self.data = self.file_hdl['data']
 
-            # check for data group
-            if 'microscope' not in self.file_hdl:
-                if not readonly:
-                    self.microscope = self.file_hdl.create_group('microscope')
-            else:
+            # check for microscope group
+            if 'microscope' in self.file_hdl:
                 self.microscope = self.file_hdl['microscope']
 
-            # check for data group
-            if 'sample' not in self.file_hdl:
-                if not readonly:
-                    self.sample = self.file_hdl.create_group('sample')
-            else:
+            # check for sample group
+            if 'sample' in self.file_hdl:
                 self.sample = self.file_hdl['sample']
 
-            # check for data group
-            if 'user' not in self.file_hdl:
-                if not readonly:
-                    self.user = self.file_hdl.create_group('user')
-            else:
+            # check for user group
+            if 'user' in self.file_hdl:
                 self.user = self.file_hdl['user']
 
-            # check for data group
-            if 'comments' not in self.file_hdl:
-                if not readonly:
-                    self.comments = self.file_hdl.create_group('comments')
-            else:
+            # check for comments group
+            if 'comments' in self.file_hdl:
                 self.comments = self.file_hdl['comments']
 
             # find emd_data_type groups in the file
@@ -155,15 +145,15 @@ class fileEMD:
         self.file_hdl.close()
 
     def __enter__(self):
-        '''Implement python's with staement
-        
-        '''
+        """Implement python's with statement
+
+        """
         return self
 
     def __exit__(self, type, value, traceback):
-        '''Implement python's with statment
+        """Implement python's with statement
         and close the file via __del__()
-        '''
+        """
         self.__del__()
         return None
 
@@ -239,7 +229,7 @@ class fileEMD:
         dims = tuple(dims)
         return (dims)
 
-    def get_emdgroup(self, group, memmap = False):
+    def get_emdgroup(self, group, memmap=False):
         """Get the emd data saved in the requested group.
 
         Parameters
@@ -291,11 +281,9 @@ class fileEMD:
             dims = self.get_emddims(group)
 
             return data, dims
-
         except:
             # if something goes wrong, return None
             print('Content of "{}" does not seem to be in emd specified shape'.format(group.name))
-
             return None
 
     def write_dim(self, label, dim, parent):
@@ -328,7 +316,7 @@ class fileEMD:
 
         return dset
 
-    def put_emdgroup(self, label, data, dims, parent=None, overwrite=False, **kwargs):
+    def put_emdgroup_v02(self, label, data, dims, parent=None, overwrite=False, **kwargs):
         """Put an emdtype dataset into the EMD file.
 
         Parameters
@@ -412,6 +400,31 @@ class fileEMD:
 
             return None
 
+    def put_emdgroup_v07(self, label, data, dims, parent=None, overwrite=False, **kwargs):
+        """Put an emdtype dataset into the EMD file using the v0.7 schema.
+
+        Parameters
+        ----------
+            label: str
+                Label for the emdtype group containing the dataset.
+            data: np.ndarray
+                Numpy array containing the data.
+            dims: tuple
+                Tuple containing the necessary dims as ((vec, name, units), (vec, name, units), ...)
+            parent: h5py._hl.group.Group/None
+                Parent for the emdtype group, if None it will be written to /data.
+            overwrite: bool
+                Set to force overwriting entry in EMD file.
+            **kwargs: various
+                Keyword arguments to be passed to h5py.create_dataset(), e.g. for compression.
+
+        Returns
+        -------
+            : h5py._hl.group.Group/None
+                Group referencing this emdtype dataset or None if failed.
+        """
+        pass
+
     def put_comment(self, msg, timestamp=None):
         """Create a comment in the EMD file.
 
@@ -448,7 +461,7 @@ class fileEMD:
         else:
             # create new entry
             self.comments.attrs[timestamp] = np.string_(msg)
-            
+
     def get_memmap(self, group):
         """ Get the emd group data as a memmap so that the data
         is not loaded into memory. Essentially calls get_emdgroup()
@@ -458,8 +471,8 @@ class fileEMD:
         
         
         """
-        return self.get_emdgroup(group, memmap = True)
-        
+        return self.get_emdgroup(group, memmap=True)
+
 
 def defaultDims(data):
     """ A helper function that can generate a properly setup dim tuple
@@ -487,7 +500,8 @@ def defaultDims(data):
 
     return dims
 
-def emdReader(filename, dsetNum = 0):
+
+def emdReader(filename, dsetNum=0):
     """ A simple helper function to read in the data and metadata 
     in a structured format similar to the other ncempy readers.
 
@@ -514,8 +528,8 @@ def emdReader(filename, dsetNum = 0):
             >> emd0 = nio.emd.emdReader('filename.emd', dsetNum = 0)
 
     """
-    with fileEMD(filename, readonly = True) as emd0:
-        d, dims = emd0.get_emdgroup(dsetNum, memmap = False) # memmap must be false. File is closed
+    with fileEMD(filename, readonly=True) as emd0:
+        d, dims = emd0.get_emdgroup(dsetNum, memmap=False)  # memmap must be false. File is closed
         out = {'data': d, 'filename': filename, 'pixelSize': []}  # TODO: Add in pixel size and other meta data
 
         for dim in dims:
