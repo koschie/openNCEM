@@ -58,7 +58,10 @@ class file4DC:
             self.scan_positions = self.fid['electron_events/scan_positions']
 
             self.scan_dimensions = [self.scan_positions.attrs[x] for x in ['Nx', 'Ny']]
-            self.frame_dimensions = [self.frames.attrs[x] for x in ['Nx', 'Ny']]
+            try:
+                self.frame_dimensions = [self.frames.attrs[x] for x in ['Nx', 'Ny']]
+            except KeyError:
+                self.frame_dimensions = (576,576)
             self.num_frames = self.frames.shape[0]
 
     def getDataset(self):
@@ -93,7 +96,7 @@ class file4DC:
     def getDenseFrame(self, start, end):
         """ Get a dense frame summed from the start frame number to the end frame number.
 
-        To do: ALlow user to sum frames in a square ROI using start and end as tuples.
+        To do: Allow user to sum frames in a square ROI using start and end as tuples.
 
         Parameters
         ----------
@@ -110,11 +113,10 @@ class file4DC:
             : np.ndarray
                 An ndarray of the summed counts. np.dtype is uint32. Shape is frame_dimensions
         """
-        dp = np.zeros(self.frame_dimensions, dtype='<u4')
+        dp0 = np.zeros(int(self.frame_dimensions[0]) * int(self.frame_dimensions[1]), dtype='<u4')
         for ii, ev in enumerate(self.frames[start:end]):
-            xx, yy = np.unravel_index(ev, dp.shape)
-            dp[xx, yy] += 1
-        return dp
+            dp0[ev] += 1
+        return dp0.reshape(self.frame_dimensions)
 
     def getDenseDataset(self, compression='lzf', mode='4D'):
         """
@@ -189,3 +191,9 @@ class file4DC:
 
         arr = da.stack(arrays, axis=0)  # Stack all small dask arrays into one
         return arr
+
+
+if __name__ == '__main__':
+    with file4DC('c:/users/linol/data/data_scan218_electrons.4dc') as f0:
+        dp = f0.getDenseFrame(0, 10)
+        print(dp[0:10, 0:10])
