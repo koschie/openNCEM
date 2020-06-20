@@ -93,7 +93,7 @@ class file4DC:
         """
         return self.fid['electron_events/frames']
 
-    def getDenseFrame(self, start, end):
+    def getDenseFrames(self, start, end):
         """ Get a dense frame summed from the start frame number to the end frame number.
 
         To do: Allow user to sum frames in a square ROI using start and end as tuples.
@@ -116,6 +116,22 @@ class file4DC:
         dp0 = np.zeros(int(self.frame_dimensions[0]) * int(self.frame_dimensions[1]), dtype='<u4')
         for ii, ev in enumerate(self.frames[start:end]):
             dp0[ev] += 1
+        return dp0.reshape(self.frame_dimensions)
+
+    def getDenseFrame(self, frame):
+        """ Get a dense frame from the events.
+
+        Parameters
+        ----------
+        frame : int
+            the frame to get
+        Returns
+        -------
+            : np.ndarray
+                An ndarray of the summed counts. np.dtype is uint32. Shape is frame_dimensions
+        """
+        dp0 = np.zeros(int(self.frame_dimensions[0]) * int(self.frame_dimensions[1]), dtype='<u4')
+        dp0[frame] += 1
         return dp0.reshape(self.frame_dimensions)
 
     def getDenseDataset(self, compression='lzf', mode='4D'):
@@ -152,7 +168,7 @@ class file4DC:
             print('Incorrect mode {}. must be 3D or 4D'.format(mode))
             return
 
-        file_name = tempfile.TemporaryFile() # not sure if this is needed.
+        file_name = tempfile.TemporaryFile()  # not sure if this is needed.
 
         # Create an HDF5 file in memory using the core driver. No backing store is used.
         file_hdl = h5py.File(file_name.name, driver='core', backing_store=False)
